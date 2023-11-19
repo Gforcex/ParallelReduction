@@ -13,6 +13,11 @@ public struct SpeedTimer
         this.title = title;
 
         stopwatch = new Stopwatch();
+        Start();
+    }
+
+    public void Start()
+    {
         stopwatch.Start();
     }
 

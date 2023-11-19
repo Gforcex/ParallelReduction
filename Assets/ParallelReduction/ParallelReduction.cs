@@ -19,15 +19,12 @@ public class ParallelReduction
         if (dataMaps == null || dataMaps.width * dataMaps.height <= 0 || reduction2DCS == null) return 0;
 
         int reductionKernel = reduction2DCS.FindKernel("Reduction");
-        //int reductionKernel = reduction2DCS.FindKernel("Reduction2");
         int fristReductionKernel = reductionKernel;
 
         uint groupThreadNumX, groupThreadNumY, gropuThreadNumZ;
         reduction2DCS.GetKernelThreadGroupSizes(reductionKernel, out groupThreadNumX, out groupThreadNumY, out gropuThreadNumZ);
         int groupProcessNumX = (int)groupThreadNumX * 2;
         int groupProcessNumY = (int)groupThreadNumY * 2;
-        //int groupProcessNumX = (int)groupThreadNumX;
-        //int groupProcessNumY = (int)groupThreadNumY;
 
         int restX = dataMaps.width;
         int restY = dataMaps.height;
@@ -105,6 +102,85 @@ public class ParallelReduction
 #endif
 
         resTex.Release();
+        return resValue;
+    }
+
+    public float ExecuteReduction2(Texture2D dataMaps)
+    {
+        if (dataMaps == null || dataMaps.width * dataMaps.height <= 0 || reduction2DCS == null) return 0;
+
+        int reductionKernel = reduction2DCS.FindKernel("Reduction2");
+        int fristReductionKernel = reductionKernel;
+
+        uint groupThreadNumX, groupThreadNumY, gropuThreadNumZ;
+        reduction2DCS.GetKernelThreadGroupSizes(reductionKernel, out groupThreadNumX, out groupThreadNumY, out gropuThreadNumZ);
+        int groupProcessNumX = (int)groupThreadNumX;
+        int groupProcessNumY = (int)groupThreadNumY;
+
+        int restX = dataMaps.width;
+        int restY = dataMaps.height;
+        int groupCountX;
+        int groupCountY;
+
+        Texture inputTex = dataMaps;
+        Texture tempTex = null;
+        RenderTexture resTex = null;
+        bool frist = true;
+        List<RenderTexture> rts = new List<RenderTexture>();
+        while (restX > 1 || restY > 1)
+        {
+            if(!frist)
+            {
+                tempTex = inputTex;
+                inputTex = resTex;
+                resTex = tempTex as RenderTexture;
+            }
+            frist = !frist;
+
+            restX = inputTex.width; 
+            restY = inputTex.height;
+
+            groupCountX = (int)Mathf.Ceil((float)restX / (float)groupProcessNumX);
+            groupCountY = (int)Mathf.Ceil((float)restY / (float)groupProcessNumY);
+
+            resTex = new RenderTexture(groupCountX, groupCountY, 0, RenderTextureFormat.RFloat);
+            resTex.filterMode = FilterMode.Point;
+            resTex.wrapMode = TextureWrapMode.Clamp;
+            resTex.autoGenerateMips = false;
+            resTex.enableRandomWrite = true;
+            resTex.Create();
+            rts.Add(resTex);
+
+            reduction2DCS.SetInts("_InputDataSize", new int[] { restX, restY });
+            reduction2DCS.SetTexture(reductionKernel, "_InputData", inputTex);
+            reduction2DCS.SetTexture(reductionKernel, "_OutputData", resTex);
+            reduction2DCS.Dispatch(reductionKernel, groupCountX, groupCountY, 1);
+        }
+
+        Texture2D sumTex = new Texture2D(1, 1, TextureFormat.RFloat, false);
+        sumTex.filterMode = FilterMode.Point;
+        sumTex.hideFlags = HideFlags.DontSave;
+
+#if UNITY_EDITOR
+        SpeedTimer stopwatch = new SpeedTimer("Read Back GPU Data");
+#endif
+
+        RenderTexture oldRT = RenderTexture.active;
+        RenderTexture.active = inputTex as RenderTexture;
+        sumTex.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
+        sumTex.Apply();
+
+        float resValue = sumTex.GetPixel(0, 0).r;
+        GameObject.DestroyImmediate(sumTex);
+        RenderTexture.active = oldRT;
+
+#if UNITY_EDITOR
+        stopwatch.StopAndLog();
+#endif
+
+        foreach(RenderTexture rt in rts)
+            rt.Release();
+
         return resValue;
     }
 

@@ -29,16 +29,16 @@ void Reduction(uint3 groupId : SV_GroupID,
 	float value = 0;
 	uint2 currSampleIdx = SampleIdx + uint2(0, 0);
 	if ( currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
-		value = _InputData[currSampleIdx];
+		value += _InputData[currSampleIdx];
 	currSampleIdx = SampleIdx + uint2(1, 0);
 	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
-		value = _InputData[currSampleIdx];
+		value += _InputData[currSampleIdx];
 	currSampleIdx = SampleIdx + uint2(0, 1);
 	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
-		value = _InputData[currSampleIdx];
+		value += _InputData[currSampleIdx];
 	currSampleIdx = SampleIdx + uint2(1, 1);
 	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
-		value = _InputData[currSampleIdx];
+		value += _InputData[currSampleIdx];
 
 	GroupSharedData[groupThreadIndex] = value;
 
@@ -90,8 +90,8 @@ void Reduction2(
 	uint3 groupThreadId : SV_GroupThreadID,
 	uint groupThreadIndex : SV_GroupIndex) //numthreads.x * numthreads.y * SV_GroupID.z + numthreads.x * SV_GroupID.y + SV_GroupID.x
 {
-	uint2 SampleIdx = uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) * groupId.xy + uint2(groupThreadIndex % GROUP_THREAD_SIZE_X, groupThreadIndex / GROUP_THREAD_SIZE_X);
-	//uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy);
+	//uint2 SampleIdx = uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) * groupId.xy + uint2(groupThreadIndex % GROUP_THREAD_SIZE_X, groupThreadIndex / GROUP_THREAD_SIZE_X);
+	uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy);
 
 	float texelValue = _InputData[SampleIdx];
 	{
@@ -108,9 +108,9 @@ void Reduction2(
 
 	// reduce
 	[unroll]
-	for (uint i = 32; i > 1; i /= 2)
+	for (uint s = GROUP_THREAD_NUM / 2u; s > 1u; s >>= 1u)
 	{
-		texelValue += GroupSharedData[groupThreadIndex ^ i];
+		texelValue += GroupSharedData[groupThreadIndex ^ s];
 		GroupMemoryBarrierWithGroupSync();
 
 		GroupSharedData[groupThreadIndex] = texelValue;

@@ -1,0 +1,126 @@
+#pragma kernel Reduction 
+#pragma kernel Reduction2
+
+// Parallel reduction
+// References:
+// [1] http://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
+// [2] https://diaryofagraphicsprogrammer.blogspot.com/2014/03/compute-shader-optimizations-for-amd.html
+
+#define GROUP_THREAD_SIZE_X 32
+#define GROUP_THREAD_SIZE_Y 32
+#define GROUP_THREAD_NUM (GROUP_THREAD_SIZE_X * GROUP_THREAD_SIZE_Y)
+
+groupshared float GroupSharedData[GROUP_THREAD_NUM];
+
+Texture2D<float> _InputData;
+RWTexture2D<float> _OutputData;
+uint2 _InputDataSize;
+
+[numthreads(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y, 1)]
+void Reduction(uint3 groupId : SV_GroupID,
+				  uint3 groupThreadId : SV_GroupThreadID,
+				  uint groupThreadIndex : SV_GroupIndex, //numthreads.x * numthreads.y * SV_GroupID.z + numthreads.x * SV_GroupID.y + SV_GroupID.x
+				  uint3 threadId : SV_DispatchThreadID) // numthreads.xyz * SV_GroupID + SV_GroupThreadID
+{
+	//------------------------------------------------------------------
+	//uint2 SampleIdx = threadId.xy;
+	uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy) * 2;
+
+	float value = 0;
+	uint2 currSampleIdx = SampleIdx + uint2(0, 0);
+	if ( currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
+		value = _InputData[currSampleIdx];
+	currSampleIdx = SampleIdx + uint2(1, 0);
+	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
+		value = _InputData[currSampleIdx];
+	currSampleIdx = SampleIdx + uint2(0, 1);
+	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
+		value = _InputData[currSampleIdx];
+	currSampleIdx = SampleIdx + uint2(1, 1);
+	if (currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
+		value = _InputData[currSampleIdx];
+
+	GroupSharedData[groupThreadIndex] = value;
+
+	GroupMemoryBarrierWithGroupSync();
+	//------------------------------------------------------------------
+#if 0
+	// Sequential addressing with unrolling last iterations:
+	// When s <= GroupSizeB then all active threads execute in lockstep.
+	// A memory barrier is then no longer needed.
+	[unroll]
+	for (uint s = GROUP_THREAD_NUM / 2u; s > 32u; s >>= 1u)
+	{
+		if (groupThreadIndex < s)
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + s];
+
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	if (groupThreadIndex < 32u)
+	{
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 32u]; //Must GROUP_THREAD_NUM >= 64
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 16u];
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 8u];
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 4u];
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 2u];
+		GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 1u];
+	}
+#else
+	[unroll]
+	for (uint s = GROUP_THREAD_NUM / 2u; s > 0u; s >>= 1u)
+	{
+		if (groupThreadIndex < s)
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + s];
+
+		GroupMemoryBarrierWithGroupSync();
+	}
+#endif
+	if (groupThreadIndex == 0)
+	{
+		_OutputData[groupId.xy] = GroupSharedData[0];
+	}
+}
+
+
+
+[numthreads(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y, 1)]
+void Reduction2(
+	uint2 groupId : SV_GroupID,
+	uint3 groupThreadId : SV_GroupThreadID,
+	uint groupThreadIndex : SV_GroupIndex) //numthreads.x * numthreads.y * SV_GroupID.z + numthreads.x * SV_GroupID.y + SV_GroupID.x
+{
+	uint2 SampleIdx = uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) * groupId.xy + uint2(groupThreadIndex % GROUP_THREAD_SIZE_X, groupThreadIndex / GROUP_THREAD_SIZE_X);
+	//uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy);
+
+	float texelValue = _InputData[SampleIdx];
+	{
+		bool isValid = all(SampleIdx < _InputDataSize);
+		if (!isValid)
+		{
+			texelValue = 0.0;
+		}
+
+		GroupSharedData[groupThreadIndex] = texelValue;
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+
+	// reduce
+	[unroll]
+	for (uint i = 32; i > 1; i /= 2)
+	{
+		texelValue += GroupSharedData[groupThreadIndex ^ i];
+		GroupMemoryBarrierWithGroupSync();
+
+		GroupSharedData[groupThreadIndex] = texelValue;
+		GroupMemoryBarrierWithGroupSync();
+	}		
+	texelValue += GroupSharedData[groupThreadIndex ^ 0x1];
+
+	// output
+	if (groupThreadIndex == 0)
+	{
+		_OutputData[groupId] = texelValue;
+	}
+}

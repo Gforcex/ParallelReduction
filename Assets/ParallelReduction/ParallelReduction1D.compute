@@ -1,0 +1,83 @@
+#pragma kernel Reduction
+
+#define GROUP_THREAD_NUM 1024
+
+groupshared float GroupSharedData[GROUP_THREAD_NUM];
+
+StructuredBuffer<float> _InputData;
+RWStructuredBuffer<float> _OutputData;
+int _InputDataSize;
+
+
+[numthreads(GROUP_THREAD_NUM, 1, 1)]
+void Reduction(uint3 groupId : SV_GroupID,
+				  uint3 groupThreadId : SV_GroupThreadID,
+				  uint groupThreadIndex : SV_GroupIndex, //numthreads.x * numthreads.y * SV_GroupID.z + numthreads.x * SV_GroupID.y + SV_GroupID.x
+				  uint3 threadId : SV_DispatchThreadID) // numthreads.xyz * SV_GroupID + SV_GroupThreadID
+{
+		//------------------------------------------------------------------
+		//ALU start at GROUP_THREAD_NUM / 2u, so half of threads is waste of computing
+		//we calc some reduction at init read
+		float value = 0;
+		int sampleIdx = threadId.x * 2;
+		if (sampleIdx < _InputDataSize)
+			value += _InputData[sampleIdx];
+		sampleIdx = threadId.x * 2 + 1;
+		if ((int) sampleIdx < _InputDataSize)
+			value += _InputData[sampleIdx];
+		GroupSharedData[groupThreadIndex] = value;
+
+		GroupMemoryBarrierWithGroupSync();
+		//------------------------------------------------------------------
+#if 0
+		// Sequential addressing with unrolling last iterations:
+		// When s <= GroupSizeB then all active threads execute in lockstep.
+		// A memory barrier is then no longer needed.
+		[unroll]
+		for (uint s = GROUP_THREAD_NUM / 2u; s > 32u; s >>= 1u)
+		{
+			if (groupThreadIndex < s)
+				GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + s];
+
+			GroupMemoryBarrierWithGroupSync();
+		}
+
+		//AMD = 64/NVIDIA = 32
+		//warp的32个线程在一个SIMD单元，此32个线程每次都是执行同一条指令，同步可以去掉
+		if (groupThreadIndex < 32u)
+		{
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 32u]; //Must GROUP_THREAD_NUM >= 64
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 16u];
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 8u];
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 4u];
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 2u];
+			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 1u];
+		}
+
+		//Directcompute doesn 't have pointers and doesn 't	allow the volatile keyword on global memory.
+		//https://stackoverflow.com/questions/63855831/warp-threads-not-simd-synchronous
+		//if (groupThreadIndex < 32u)
+		//{
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 32u]); //Must GROUP_THREAD_NUM >= 64
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 16u]);
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 8u] );
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 4u] );
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 2u] );
+		//	InterlockedAdd(GroupSharedData[groupThreadIndex], GroupSharedData[groupThreadIndex + 1u] );
+		//}
+#else
+		[unroll]
+		for (uint s = GROUP_THREAD_NUM / 2u; s > 0; s >>= 1u)
+		{
+			if (groupThreadIndex < s)
+				GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + s];
+
+			GroupMemoryBarrierWithGroupSync();
+		}
+#endif
+
+		if (groupThreadIndex == 0)
+		{
+			_OutputData[groupId.x] = GroupSharedData[0];
+		}
+	}

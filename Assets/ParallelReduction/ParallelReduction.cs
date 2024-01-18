@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 public class ParallelReduction 
@@ -14,9 +15,11 @@ public class ParallelReduction
         reduction2DCS = CS2d;
     }
 
-    public float ExecuteReduction(Texture2D dataMaps)
+    public float ExecuteReduction(Texture2D dataMaps, ReductionOperation operation, ReductionValue valueType = ReductionValue.FLOAT)
     {
         if (dataMaps == null || dataMaps.width * dataMaps.height <= 0 || reduction2DCS == null) return 0;
+
+        ReductionOperationUtil.SetReductionOperation(reduction2DCS, operation, valueType);
 
         int reductionKernel = reduction2DCS.FindKernel("Reduction");
         int fristReductionKernel = reductionKernel;
@@ -32,7 +35,7 @@ public class ParallelReduction
         int groupCountX = (int)Mathf.Ceil((float)restX / (float)groupProcessNumX);
         int groupCountY = (int)Mathf.Ceil((float)restY / (float)groupProcessNumY);
 
-        RenderTexture resTex = new RenderTexture(groupCountX, groupCountY, 0, RenderTextureFormat.RFloat);
+        RenderTexture resTex = new RenderTexture(groupCountX, groupCountY, 0, GraphicsFormat.R32_SFloat);
         resTex.filterMode = FilterMode.Point;
         resTex.wrapMode = TextureWrapMode.Clamp;
         resTex.autoGenerateMips = false;
@@ -49,8 +52,8 @@ public class ParallelReduction
         {
             RenderTexture swapTex = new RenderTexture((int)Mathf.Ceil((float)groupCountX / (float)groupProcessNumX), 
                 (int)Mathf.Ceil((float)groupCountY / (float)groupProcessNumY), 
-                0, 
-                RenderTextureFormat.RFloat);
+                0,
+                GraphicsFormat.R32_SFloat);
             swapTex.filterMode = FilterMode.Point;
             swapTex.wrapMode = TextureWrapMode.Clamp;
             swapTex.autoGenerateMips = false;
@@ -80,7 +83,7 @@ public class ParallelReduction
         }
 
 
-        Texture2D sumTex = new Texture2D(1, 1, TextureFormat.RFloat, false);
+        Texture2D sumTex = new Texture2D(1, 1, GraphicsFormat.R32_SFloat, TextureCreationFlags.None);
         sumTex.filterMode = FilterMode.Point;
         sumTex.hideFlags = HideFlags.DontSave;
 
@@ -105,9 +108,11 @@ public class ParallelReduction
         return resValue;
     }
 
-    public float ExecuteReduction2(Texture2D dataMaps)
+    public float ExecuteReduction2(Texture2D dataMaps, ReductionOperation operation, ReductionValue valueType = ReductionValue.FLOAT)
     {
         if (dataMaps == null || dataMaps.width * dataMaps.height <= 0 || reduction2DCS == null) return 0;
+
+        ReductionOperationUtil.SetReductionOperation(reduction2DCS, operation, valueType);
 
         int reductionKernel = reduction2DCS.FindKernel("Reduction2");
         int fristReductionKernel = reductionKernel;
@@ -125,17 +130,34 @@ public class ParallelReduction
         Texture inputTex = dataMaps;
         Texture tempTex = null;
         RenderTexture resTex = null;
-        bool frist = true;
+
         List<RenderTexture> rts = new List<RenderTexture>();
+
+        restX = inputTex.width;
+        restY = inputTex.height;
+
+        groupCountX = (int)Mathf.Ceil((float)restX / (float)groupProcessNumX);
+        groupCountY = (int)Mathf.Ceil((float)restY / (float)groupProcessNumY);
+
+        resTex = new RenderTexture(groupCountX, groupCountY, 0, GraphicsFormat.R32_SFloat);
+        resTex.filterMode = FilterMode.Point;
+        resTex.wrapMode = TextureWrapMode.Clamp;
+        resTex.autoGenerateMips = false;
+        resTex.enableRandomWrite = true;
+        resTex.Create();
+        rts.Add(resTex);
+
+        reduction2DCS.SetInts("_InputDataSize", new int[] { restX, restY });
+        reduction2DCS.SetTexture(reductionKernel, "_InputData", inputTex);
+        reduction2DCS.SetTexture(reductionKernel, "_OutputData", resTex);
+        reduction2DCS.Dispatch(reductionKernel, groupCountX, groupCountY, 1);
+        inputTex = resTex;
+
         while (restX > 1 || restY > 1)
         {
-            if(!frist)
-            {
-                tempTex = inputTex;
-                inputTex = resTex;
-                resTex = tempTex as RenderTexture;
-            }
-            frist = !frist;
+            tempTex = inputTex;
+            inputTex = resTex;
+            resTex = tempTex as RenderTexture;
 
             restX = inputTex.width; 
             restY = inputTex.height;
@@ -143,7 +165,7 @@ public class ParallelReduction
             groupCountX = (int)Mathf.Ceil((float)restX / (float)groupProcessNumX);
             groupCountY = (int)Mathf.Ceil((float)restY / (float)groupProcessNumY);
 
-            resTex = new RenderTexture(groupCountX, groupCountY, 0, RenderTextureFormat.RFloat);
+            resTex = new RenderTexture(groupCountX, groupCountY, 0, GraphicsFormat.R32_SFloat);
             resTex.filterMode = FilterMode.Point;
             resTex.wrapMode = TextureWrapMode.Clamp;
             resTex.autoGenerateMips = false;
@@ -157,7 +179,7 @@ public class ParallelReduction
             reduction2DCS.Dispatch(reductionKernel, groupCountX, groupCountY, 1);
         }
 
-        Texture2D sumTex = new Texture2D(1, 1, TextureFormat.RFloat, false);
+        Texture2D sumTex = new Texture2D(1, 1, GraphicsFormat.R32_SFloat, TextureCreationFlags.None);
         sumTex.filterMode = FilterMode.Point;
         sumTex.hideFlags = HideFlags.DontSave;
 
@@ -184,9 +206,11 @@ public class ParallelReduction
         return resValue;
     }
 
-    public float ExecuteReduction(ComputeBuffer dataBuffer)
+    public float ExecuteReduction(ComputeBuffer dataBuffer, ReductionOperation operation, ReductionValue valueType = ReductionValue.FLOAT)
     {
         if (dataBuffer == null || dataBuffer.count <= 0 || reduction1DCS == null) return 0;
+
+        ReductionOperationUtil.SetReductionOperation(reduction1DCS, operation, valueType);
 
         int reductionKernel = reduction1DCS.FindKernel("Reduction");
         int fristReductionKernel = reductionKernel;

@@ -1,5 +1,8 @@
 #pragma kernel Reduction 
 #pragma kernel Reduction2
+#pragma multi_compile_local _OP_SUM _OP_MAX _OP_MIN
+//#pragma multi_compile_local _FLOAT _INT
+#include "ReductionOperation.hlsl"
 
 // Parallel reduction
 // References:
@@ -10,10 +13,10 @@
 #define GROUP_THREAD_SIZE_Y 32
 #define GROUP_THREAD_NUM (GROUP_THREAD_SIZE_X * GROUP_THREAD_SIZE_Y)
 
-groupshared float GroupSharedData[GROUP_THREAD_NUM];
+groupshared Value GroupSharedData[GROUP_THREAD_NUM];
 
-Texture2D<float> _InputData;
-RWTexture2D<float> _OutputData;
+Texture2D<Value> _InputData;
+RWTexture2D<Value> _OutputData;
 uint2 _InputDataSize;
 
 [numthreads(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y, 1)]
@@ -26,7 +29,7 @@ void Reduction(uint3 groupId : SV_GroupID,
 	//uint2 SampleIdx = threadId.xy;
 	uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy) * 2;
 
-	float value = 0;
+	Value value = 0;
 	uint2 currSampleIdx = SampleIdx + uint2(0, 0);
 	if ( currSampleIdx.x < _InputDataSize.x && currSampleIdx.y < _InputDataSize.y)
 		value += _InputData[currSampleIdx];
@@ -93,7 +96,7 @@ void Reduction2(
 	//uint2 SampleIdx = uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) * groupId.xy + uint2(groupThreadIndex % GROUP_THREAD_SIZE_X, groupThreadIndex / GROUP_THREAD_SIZE_X);
 	uint2 SampleIdx = (groupId.xy * uint2(GROUP_THREAD_SIZE_X, GROUP_THREAD_SIZE_Y) + groupThreadId.xy);
 
-	float texelValue = _InputData[SampleIdx];
+	Value texelValue = _InputData[SampleIdx];
 	{
 		bool isValid = all(SampleIdx < _InputDataSize);
 		if (!isValid)

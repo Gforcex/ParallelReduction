@@ -1,11 +1,14 @@
 #pragma kernel Reduction
+#pragma multi_compile_local _OP_SUM _OP_MAX _OP_MIN
+//#pragma multi_compile_local _FLOAT _INT
+#include "ReductionOperation.hlsl"
 
 #define GROUP_THREAD_NUM 1024
 
-groupshared float GroupSharedData[GROUP_THREAD_NUM];
+groupshared Value GroupSharedData[GROUP_THREAD_NUM];
 
-StructuredBuffer<float> _InputData;
-RWStructuredBuffer<float> _OutputData;
+StructuredBuffer<Value> _InputData;
+RWStructuredBuffer<Value> _OutputData;
 int _InputDataSize;
 
 
@@ -18,7 +21,7 @@ void Reduction(uint3 groupId : SV_GroupID,
 		//------------------------------------------------------------------
 		//ALU start at GROUP_THREAD_NUM / 2u, so half of threads is waste of computing
 		//we calc some reduction at init read
-		float value = 0;
+		Value value = 0;
 		int sampleIdx = threadId.x * 2;
 		if (sampleIdx < _InputDataSize)
 			value += _InputData[sampleIdx];

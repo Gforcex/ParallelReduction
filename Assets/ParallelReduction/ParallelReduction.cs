@@ -153,7 +153,7 @@ public class ParallelReduction
         reduction2DCS.Dispatch(reductionKernel, groupCountX, groupCountY, 1);
         inputTex = resTex;
 
-        while (restX > 1 || restY > 1)
+        while (groupCountX > 1 || groupCountY > 1)
         {
             tempTex = inputTex;
             inputTex = resTex;
@@ -188,7 +188,7 @@ public class ParallelReduction
 #endif
 
         RenderTexture oldRT = RenderTexture.active;
-        RenderTexture.active = inputTex as RenderTexture;
+        RenderTexture.active = resTex as RenderTexture;
         sumTex.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
         sumTex.Apply();
 

@@ -47,6 +47,7 @@ void Reduction(uint3 groupId : SV_GroupID,
 
 		//AMD = 64/NVIDIA = 32
 		//warp的32个线程在一个SIMD单元，此32个线程每次都是执行同一条指令，同步可以去掉
+		//数据Bank对齐
 		if (groupThreadIndex < 32u)
 		{
 			GroupSharedData[groupThreadIndex] += GroupSharedData[groupThreadIndex + 32u]; //Must GROUP_THREAD_NUM >= 64
